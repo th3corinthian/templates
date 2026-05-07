@@ -1,0 +1,13 @@
+<domain type="qemu">                                  <!-- not kvm -->
+  <os firmware="efi">
+    <type arch="aarch64" machine="virt">hvm</type>
+    <loader readonly="yes" type="pflash">/run/libvirt/nix-ovmf/AAVMF_CODE.fd</loader>
+    <nvram template="/run/libvirt/nix-ovmf/AAVMF_VARS.fd">/var/lib/libvirt/qemu/nvram/{{ name }}_VARS.fd</nvram>
+  </os>
+  <cpu mode="custom" match="exact"><model>cortex-a72</model></cpu>
+  <devices>
+    <emulator>/run/current-system/sw/bin/qemu-system-aarch64</emulator>
+    <controller type="virtio-serial" index="0"/>
+    <serial type="pty"><target type="system-serial" port="0"><model name="pl011"/></target></serial>
+  </devices>
+</domain>

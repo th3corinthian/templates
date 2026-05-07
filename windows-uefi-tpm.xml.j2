@@ -1,0 +1,23 @@
+<os firmware="efi">
+    <firmware>
+      <feature enabled="yes" name="secure-boot"/>     <!-- Win11 -->
+      <feature enabled="yes" name="enrolled-keys"/>
+    </firmware>
+  </os>
+  <features>
+    <acpi/><apic/>
+    <hyperv mode="custom">
+      <relaxed state="on"/>
+      <vapic state="on"/>
+      <spinlocks state="on" retries="8191"/>
+      <vendor_id state="on" value="GenuineIntel"/>    <!-- anti-anti-VM -->
+    </hyperv>
+  </features>
+  <devices>
+    <tpm model="tpm-crb">
+      <backend type="emulator" version="2.0"/>
+    </tpm>
+    <video>
+      <model type="qxl" vram="65536" heads="1"/>      <!-- Spice graphics for Windows -->
+    </video>
+  </devices>
