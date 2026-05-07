@@ -1,0 +1,201 @@
+#+TITLE: Template Variable Schema
+#+AUTHOR: A. FROG
+#+STARTUP: overview folded
+
+* Overview
+
+All variables used across the Jinja2 template system are documented here.
+Variables are resolved in precedence order (highest to lowest):
+
+1. CLI overrides passed to the rendering script
+2. Role vars (~vars/role/<role>.yaml~)
+3. Arch vars (~vars/arch/<arch>.yaml~)
+4. Global defaults (~vars/defaults.yaml~)
+
+A variable defined at a lower precedence layer is silently overridden by any
+layer above it. Every template uses ~| default()~ guards — no variable is
+required unless marked *required* below.
+
+* Global Variables  (~vars/defaults.yaml~)
+
+** Identity
+| Variable  | Type   | Default   | Required | Description                      |
+|-----------+--------+-----------+----------+----------------------------------|
+| ~vm_name~ | string | —         | YES      | Domain name as registered in libvirt |
+| ~vm_uuid~ | string | ""        | no       | UUID; leave empty to auto-generate   |
+| ~vm_desc~ | string | ""        | no       | Human-readable description           |
+
+** Compute
+| Variable      | Type    | Default      | Description                                        |
+|---------------+---------+--------------+----------------------------------------------------|
+| ~memory_mb~   | integer | 2048         | Guest RAM in MiB                                   |
+| ~vcpus~       | integer | 2            | Total logical CPU count                            |
+| ~cpu_sockets~ | integer | 1            | Physical socket count                              |
+| ~cpu_cores~   | integer | 2            | Cores per socket                                   |
+| ~cpu_threads~ | integer | 1            | Threads per core (set 2 for SMT/Hyper-Threading)   |
+| ~cpu_mode~    | string  | host-model   | One of: ~host-model~, ~host-passthrough~, ~custom~ |
+
+~cpu_sockets * cpu_cores * cpu_threads~ must equal ~vcpus~.
+
+** Storage
+| Variable          | Type   | Default    | Required | Description                            |
+|-------------------+--------+------------+----------+----------------------------------------|
+| ~disk_path~       | string | —          | YES      | Absolute path to primary disk image    |
+| ~disk_cache~      | string | writeback  | no       | QEMU cache mode for primary disk       |
+| ~disk_io~         | string | native     | no       | QEMU I/O mode (~native~ or ~threads~)  |
+| ~iso_path~        | string | undefined  | no       | Attach as SATA CDROM at ~sda~          |
+| ~cloud_init_iso~  | string | undefined  | no       | Attach seed ISO at ~sdb~               |
+
+Valid ~disk_cache~ values: ~none~, ~writeback~, ~writethrough~, ~directsync~, ~unsafe~.
+Use ~none~ for raw devices; ~writeback~ is the general-purpose default.
+
+** Networking
+| Variable     | Type   | Default | Description                                   |
+|--------------+--------+---------+-----------------------------------------------|
+| ~vm_network~ | string | default | Libvirt network name to attach to             |
+| ~vm_mac~     | string | null    | MAC address; null = libvirt auto-generates    |
+| ~nic_model~  | string | virtio  | NIC model (~virtio~, ~e1000~, ~rtl8139~)      |
+
+** Firmware / Boot
+| Variable          | Type    | Default                         | Description                        |
+|-------------------+---------+---------------------------------+------------------------------------|
+| ~uefi~            | boolean | false                           | Enable UEFI pflash firmware        |
+| ~uefi_code~       | string  | /usr/share/OVMF/OVMF_CODE.fd   | Path to UEFI code blob (read-only) |
+| ~nvram_path~      | string  | auto                            | NVRAM vars file; auto = per-vm path under ~/var/lib/libvirt/qemu/nvram/~ |
+| ~machine_type~    | string  | pc-q35-8.0                      | QEMU machine type string           |
+| ~emulator~        | string  | /usr/bin/qemu-system-x86_64    | Emulator binary path               |
+| ~boot_from_cdrom~ | boolean | false                           | Prepend cdrom to boot order        |
+
+** Security / Features
+| Variable  | Type    | Default | Description                                      |
+|-----------+---------+---------+--------------------------------------------------|
+| ~tpm~     | boolean | false   | Emulated TPM 2.0 via ~tpm-crb~ model             |
+| ~smm~     | boolean | false   | System Management Mode (required for Secure Boot) |
+| ~hyperv~  | boolean | false   | Hyper-V enlightenments (Windows guests only)     |
+| ~acpi~    | boolean | true    | ACPI support                                     |
+| ~apic~    | boolean | true    | APIC interrupt controller                        |
+
+** Display
+| Variable      | Type    | Default    | Description                                |
+|---------------+---------+------------+--------------------------------------------|
+| ~video_model~ | string  | virtio     | Video adapter (~virtio~, ~vga~, ~qxl~)     |
+| ~vnc_port~    | integer | -1         | VNC port; -1 enables autoport              |
+| ~vnc_listen~  | string  | 127.0.0.1  | VNC listen address                         |
+| ~spice~       | boolean | false      | Use SPICE instead of VNC (not implemented) |
+
+** Guest Agent
+| Variable      | Type    | Default | Description                                    |
+|---------------+---------+---------+------------------------------------------------|
+| ~guest_agent~ | boolean | true    | Add virtio-serial channel for qemu-guest-agent |
+
+* Arch-Specific Variables  (~vars/arch/<arch>.yaml~)
+
+Only values that differ from global defaults need to be specified.
+
+** x86_64
+| Variable      | Default                       | Notes                    |
+|---------------+-------------------------------+--------------------------|
+| ~machine_type~| pc-q35-8.0                    | Q35 chipset              |
+| ~emulator~    | /usr/bin/qemu-system-x86_64  | Standard x86_64 binary   |
+| ~cpu_mode~    | host-model                    | Allows live migration    |
+| ~uefi_code~   | /usr/share/OVMF/OVMF_CODE.fd | x86 OVMF firmware        |
+
+** arm64
+| Variable      | Default                            | Notes                         |
+|---------------+------------------------------------+-------------------------------|
+| ~machine_type~| virt                               | Generic ARM virt platform     |
+| ~emulator~    | /usr/bin/qemu-system-aarch64      | AArch64 binary                |
+| ~cpu_mode~    | host-passthrough                   | Required for KVM acceleration |
+| ~uefi~        | true                               | ARM64 always needs UEFI       |
+| ~uefi_code~   | /usr/share/AAVMF/AAVMF_CODE.fd   | ARM AAVMF firmware            |
+
+* Role-Specific Variables  (~vars/role/<role>.yaml~)
+
+** linux
+| Variable      | Default | Notes                                        |
+|---------------+---------+----------------------------------------------|
+| ~memory_mb~   | 2048    |                                              |
+| ~vcpus~       | 2       |                                              |
+| ~uefi~        | false   | Override to true for UEFI-only distros       |
+| ~video_model~ | virtio  | virtio-gpu works on all modern Linux kernels |
+| ~guest_agent~ | true    | Install ~qemu-guest-agent~ in the guest      |
+
+** windows
+| Variable      | Default | Notes                                             |
+|---------------+---------+---------------------------------------------------|
+| ~memory_mb~   | 4096    | Win11 minimum                                     |
+| ~vcpus~       | 4       |                                                   |
+| ~cpu_threads~ | 2       | SMT exposed to guest                              |
+| ~uefi~        | true    | Required                                          |
+| ~smm~         | true    | Required for Secure Boot                          |
+| ~tpm~         | true    | Required for Win11; set false for Win10           |
+| ~hyperv~      | true    | Hyper-V enlightenments reduce overhead            |
+| ~video_model~ | vga     | Use VGA during install; switch to virtio-win after|
+
+** bsd
+| Variable      | Default | Notes                                      |
+|---------------+---------+--------------------------------------------|
+| ~memory_mb~   | 2048    |                                            |
+| ~uefi~        | true    | FreeBSD/OpenBSD both prefer UEFI           |
+| ~video_model~ | vga     | virtio-gpu not well-supported on BSD       |
+| ~guest_agent~ | false   | Not available on all BSDs by default       |
+
+* Cloud-Init Variables
+
+Used in ~cloud-init/~ templates. Only applicable when a seed ISO is generated.
+
+| Variable          | Type    | Default    | Description                                        |
+|-------------------+---------+------------+----------------------------------------------------|
+| ~ci_hostname~     | string  | ~vm_name~  | Guest hostname set on first boot                   |
+| ~ci_instance_id~  | string  | 01         | Unique instance ID suffix                          |
+| ~ci_username~     | string  | operator   | Primary non-root user to create                    |
+| ~ci_ssh_keys~     | list    | []         | List of SSH public keys for primary user           |
+| ~ci_timezone~     | string  | UTC        | System timezone string                             |
+| ~ci_packages~     | list    | []         | Extra packages to install on first boot            |
+| ~ci_runcmd~       | list    | []         | Shell commands to run at end of first boot         |
+| ~ci_upgrade~      | boolean | true       | Run ~apt upgrade~ / ~dnf upgrade~ on first boot   |
+| ~ci_dhcp~         | boolean | true       | Use DHCP on primary interface                      |
+| ~ci_iface~        | string  | eth0       | Primary network interface name                     |
+| ~ci_ip~           | string  | —          | Static IP (required if ~ci_dhcp: false~)           |
+| ~ci_prefix~       | integer | 24         | Subnet prefix length for static config             |
+| ~ci_gateway~      | string  | —          | Default gateway (required if ~ci_dhcp: false~)     |
+| ~ci_dns~          | list    | [1.1.1.1, 9.9.9.9] | DNS resolvers                            |
+| ~ci_password_hash~| string  | —          | SHA-512 hashed password (target role only)         |
+| ~ci_weak_ssh~     | boolean | true       | Enable password auth + root login (target role)    |
+| ~c2_port~         | integer | —          | Port to open in UFW (c2-teamserver role)           |
+
+* Network Template Variables  (~networks/~)
+
+| Variable        | Type    | Default        | Description                          |
+|-----------------+---------+----------------+--------------------------------------|
+| ~net_name~      | string  | —              | Network name in libvirt (required)   |
+| ~net_uuid~      | string  | undefined      | UUID; omit to auto-generate          |
+| ~net_bridge~    | string  | virbr1         | Linux bridge device name             |
+| ~net_forward~   | string  | nat            | Forward mode: ~nat~, ~route~, or omit for isolated |
+| ~net_ip~        | string  | 192.168.100.1  | Host-side IP address on the bridge   |
+| ~net_prefix~    | integer | 24             | Subnet prefix length                 |
+| ~net_dhcp~      | boolean | true           | Enable DHCP server on this network   |
+| ~net_dhcp_start~| string  | 192.168.100.100| DHCP pool start address              |
+| ~net_dhcp_end~  | string  | 192.168.100.254| DHCP pool end address                |
+| ~net_dhcp_hosts~| list    | []             | Static DHCP reservations (mac/name/ip dicts) |
+
+* Storage Template Variables  (~storage/~)
+
+** Pools
+| Variable     | Type   | Default | Required | Description                     |
+|--------------+--------+---------+----------+---------------------------------|
+| ~pool_name~  | string | —       | YES      | Pool name in libvirt             |
+| ~pool_path~  | string | —       | YES      | Filesystem path for dir pool     |
+| ~pool_uuid~  | string | —       | no       | UUID; omit to auto-generate      |
+| ~pool_owner~ | int    | 64055   | no       | UID for pool directory           |
+| ~pool_group~ | int    | 64055   | no       | GID for pool directory           |
+
+** Volumes
+| Variable            | Type    | Default | Required | Description                           |
+|---------------------+---------+---------+----------+---------------------------------------|
+| ~vol_name~          | string  | —       | YES      | Volume filename                        |
+| ~vol_size_gb~       | integer | 20      | no       | Capacity in GiB                        |
+| ~vol_format~        | string  | qcow2   | no       | Image format (~qcow2~ or ~raw~)        |
+| ~vol_backing_path~  | string  | —       | no       | Backing image path (for linked clones) |
+| ~vol_backing_format~| string  | qcow2   | no       | Backing image format                   |
+

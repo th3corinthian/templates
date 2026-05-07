@@ -1,0 +1,174 @@
+#+TITLE: Contributing to libvirt Templates
+#+AUTHOR: A. FROG
+#+STARTUP: overview
+
+* Directory Structure
+
+#+BEGIN_SRC
+templates/
+├── CONTRIBUTING.org       This file
+├── SCHEMA.org             Full variable reference
+├── README.org             Quick-start overview
+│
+├── macros/                Reusable Jinja2 macro definitions
+│   ├── cpu.j2             CPU topology and mode macros
+│   ├── disk.j2            Block device macros
+│   └── network.j2         NIC macros
+│
+├── snippets/              Composable XML fragments (partial — no full domain)
+│   ├── cpu/               CPU mode overrides
+│   ├── devices/           Individual device fragments (TPM, RNG, etc.)
+│   ├── features/          Feature flag blocks (HyperV, SMM, etc.)
+│   ├── memory/            Memory config fragments
+│   └── network/           NIC fragments (used by macros or standalone)
+│
+├── vars/                  YAML variable defaults
+│   ├── defaults.yaml      Global baseline — all vars with sane defaults
+│   ├── arch/              Arch overrides (applied over defaults)
+│   └── role/              Role overrides (applied over arch)
+│
+├── domains/               Complete domain XML templates
+│   ├── arch/              Arch-first: hardware platform is primary
+│   │   ├── x86_64/base.xml.j2
+│   │   └── arm64/virt.xml.j2
+│   └── role/              Role-first: OS/purpose is primary
+│       ├── linux/base.xml.j2
+│       ├── windows/base.xml.j2
+│       └── bsd/base.xml.j2
+│
+├── cloud-init/            Cloud-init first-boot configuration templates
+│   └── roles/             Per-role user-data templates
+│       ├── base/          Minimal baseline — safe for all Linux guests
+│       ├── c2-teamserver/ Hardened offensive ops host
+│       ├── analyst/       Analyst workstation baseline
+│       └── target/        Intentionally permissive lab target
+│
+├── networks/              Libvirt network XML templates
+├── storage/               Pool and volume XML templates
+│   ├── pools/
+│   └── volumes/
+├── topologies/            Multi-VM lab topology definitions
+├── examples/              Rendered static outputs (do not hand-edit)
+└── priv-templates/        Private — do not touch
+#+END_SRC
+
+* Variable Precedence
+
+Variables are merged at render time in this order (highest wins):
+
+#+BEGIN_EXAMPLE
+CLI flags  >  vars/role/<role>.yaml  >  vars/arch/<arch>.yaml  >  vars/defaults.yaml
+#+END_EXAMPLE
+
+Only define values in arch/role files that *differ* from the global defaults.
+Document every new variable in ~SCHEMA.org~ before merging.
+
+* Jinja2 Conventions
+
+** Whitespace
+Use strip-whitespace blocks everywhere to keep rendered XML clean:
+#+BEGIN_SRC jinja2
+{%- if condition -%}
+  ...
+{%- endif -%}
+#+END_SRC
+
+** Default Guards
+Every variable reference must use ~| default()~. Never assume a variable is
+set — the template must render without error given only ~vm_name~ and ~disk_path~:
+#+BEGIN_SRC jinja2
+{{ memory_mb | default(2048) }}
+{{ uefi | default(false) }}
+{{ vm_mac | default(none) }}
+#+END_SRC
+
+** Macros vs Snippets
+- *Macros* (~macros/~): imported via ~{%- from 'macros/X.j2' import Y -%}~.
+  Use when a fragment needs parameters.
+- *Snippets* (~snippets/~): included via ~{% include 'snippets/X/Y.j2' %}~.
+  Use for fixed XML blocks that read from the ambient variable context.
+
+Snippets must never ~import~ or ~from~ import anything — they are leaf nodes.
+
+* Adding a New Domain Template
+
+1. Determine the primary axis: hardware platform → ~domains/arch/~, OS/purpose → ~domains/role/~.
+
+2. Create the file. Import macros at the top, use ~| default()~ on all vars:
+   #+BEGIN_SRC jinja2
+   {%- from 'macros/cpu.j2'     import cpu_config -%}
+   {%- from 'macros/disk.j2'    import virtio_disk -%}
+   {%- from 'macros/network.j2' import virtio_nic  -%}
+   #+END_SRC
+
+3. Role templates that compose an arch template use ~{% set %}~ + ~{% include %}~:
+   #+BEGIN_SRC jinja2
+   {%- set uefi   = uefi   | default(true)  -%}
+   {%- set memory_mb = memory_mb | default(4096) -%}
+   {%- include 'domains/arch/x86_64/base.xml.j2' -%}
+   #+END_SRC
+
+4. Render a static example and save to ~examples/~:
+   #+BEGIN_SRC bash
+   jinja2 domains/role/linux/base.xml.j2 vars/defaults.yaml \
+     -D vm_name=example-debian \
+     -D disk_path=/var/lib/libvirt/images/example.qcow2 \
+     > examples/debian-x86_64.xml
+   #+END_SRC
+
+5. Document any new variables in ~SCHEMA.org~.
+
+* Adding a Snippet
+
+#+BEGIN_SRC xml
+{# snippets/devices/my-device.j2
+   Brief description. Variables used: foo, bar | default(...). #}
+    <mydevice model="{{ foo | default('default-model') }}">
+      <backend type="{{ bar | default('emulator') }}"/>
+    </mydevice>
+#+END_SRC
+
+- Filename: lowercase, hyphens, no spaces.
+- First line: comment naming the file and listing variables it reads.
+- No imports, no extends — snippets are leaves.
+- Document variables in ~SCHEMA.org~.
+
+* Adding a Macro
+
+Add to the appropriate ~macros/~ file (~cpu~, ~disk~, ~network~):
+#+BEGIN_SRC jinja2
+{%- macro my_macro(param1, param2='default') -%}
+  <xml>{{ param1 }}</xml>
+{%- endmacro -%}
+#+END_SRC
+
+- One macro = one XML block. Do not chain unrelated concerns in a single macro.
+- Use keyword arguments with defaults for everything except truly required params.
+- Update the macro file's top comment block to list the new macro.
+
+* Adding Vars Files
+
+- ~vars/arch/<arch>.yaml~ — hardware-specific overrides only.
+- ~vars/role/<role>.yaml~ — OS/purpose-specific overrides only.
+- Comment every entry explaining *why* it differs from the global default.
+- Keep files short. If a role needs ten+ overrides, question whether a dedicated
+  full domain template (~domains/role/~) would be cleaner.
+
+* Adding Cloud-Init Templates
+
+- Base template at ~cloud-init/roles/base/user-data.j2~ — this is the safe baseline.
+- Role-specific templates at ~cloud-init/roles/<role>/user-data.j2~.
+- Always include ~#cloud-config~ as the first line (required by cloud-init).
+- Prefer ~packages~, ~runcmd~, and ~write_files~ directives over inline shell scripts.
+- Role templates may define additional variables; document them in ~SCHEMA.org~.
+
+Seed ISO generation:
+#+BEGIN_SRC bash
+cloud-localds /tmp/$VM_NAME-seed.iso cloud-init/roles/$ROLE/user-data.j2 cloud-init/meta-data.j2
+#+END_SRC
+
+* Do Not Modify
+
+- ~priv-templates/~ — private templates, managed separately outside this repo.
+- ~examples/~ — rendered outputs only. Update by re-rendering, not by hand.
+
